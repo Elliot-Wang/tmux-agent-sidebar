@@ -53,10 +53,8 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             .as_ref()
             .is_some_and(|fid| group.panes.iter().any(|(p, _)| p.pane_id == *fid));
 
-        // Plain repo header at column 0, with a `[+]` spawn button
-        // right-aligned on the same row. Only rendered when the group
-        // has a resolved repo_root — panes outside a git repo get a
-        // plain title.
+        // One shared header action: spawn for repositories, or resume the
+        // selected closed conversation (including non-Git directories).
         let title = &group.name;
         let title_color = if group_has_focused_pane {
             theme.accent
@@ -67,14 +65,32 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             .panes
             .iter()
             .find_map(|(_, git)| git.repo_root.clone());
-        let spans: Vec<Span<'static>> = if let Some(ref root) = repo_root {
+        let selected_closed = state.selected_pane().filter(|pane| {
+            crate::retained::is_retained(&pane.pane_id)
+                && filtered_panes
+                    .iter()
+                    .any(|(p, _)| p.pane_id == pane.pane_id)
+        });
+        let spans: Vec<Span<'static>> = if repo_root.is_some() || selected_closed.is_some() {
             let title_w = display_width(title);
             let pad_width = width
                 .saturating_sub(title_w)
                 .saturating_sub(SPAWN_BUTTON.len());
-            collected
-                .pending_spawn
-                .push((collected.lines.len(), group.name.clone(), root.clone()));
+            if let Some(root) = &repo_root {
+                collected.pending_spawn.push((
+                    collected.lines.len(),
+                    group.name.clone(),
+                    root.clone(),
+                ));
+            } else if let Some(pane) = selected_closed {
+                collected.pending_session_actions.push((
+                    collected.lines.len(),
+                    width.saturating_sub(1) as u16,
+                    1,
+                    pane.pane_id.clone(),
+                    SessionAction::Resume,
+                ));
+            }
             let button_color = if group_has_focused_pane {
                 theme.accent
             } else {
@@ -108,7 +124,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             let retained = state.retained_entry(&pane.pane_id);
             let closed = crate::retained::is_retained(&pane.pane_id);
             let actions_width = if retained.is_some() && width >= 10 {
-                if closed { 5 } else { 3 }
+                3
             } else {
                 0
             };
@@ -151,19 +167,6 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                         pane.pane_id.clone(),
                         SessionAction::Pin,
                     ));
-                    if closed {
-                        line.spans.push(Span::styled(
-                            format!(" {SPAWN_BUTTON}"),
-                            Style::default().fg(theme.accent),
-                        ));
-                        collected.pending_session_actions.push((
-                            status_line_idx,
-                            (width - 1) as u16,
-                            1,
-                            pane.pane_id.clone(),
-                            SessionAction::Resume,
-                        ));
-                    }
                 }
                 if closed {
                     let hint = if entry.pending_until > state.now {

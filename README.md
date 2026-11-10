@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.6`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.7`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -57,13 +57,14 @@ gaps. Only conversations observed by this sidebar version are retained.
   pinned. A pinned conversation remains after exit without a time limit, even
   across sidebar restarts. Unpinning a closed conversation starts a fresh
   retention period.
-- Click the closed session's `+`, or select it and press `n` (the existing spawn
-  action) or Enter, to resume it in a **new window in the sidebar's tmux session**, using
-  its original working directory and exact session ID. The new window is selected
-  automatically. Selecting a closed row
-  alone does not launch anything. The repository header's `+` also resumes a
-  selected closed session in that group; otherwise worktree spawning works as
-  before. Resume creates no worktree.
+- Select a closed session, then click its **group header's `+`**, or press `n`
+  (the existing spawn action) or Enter. Resume opens and selects a new window in
+  the sidebar's tmux session, using the original working directory and exact
+  session ID. The session row only has its pin control. Non-Git groups also show
+  a header `+` when a closed session in that group is selected. Selecting a
+  closed row alone does not launch anything. For repositories, the header `+`
+  keeps its worktree-spawn behavior when no closed session in that group is
+  selected. Resume creates no worktree.
 - Session pins are separate from `prefix + b`, which keeps the sidebar expanded.
 
 Resume supports `codex resume <ID>`, `claude --resume <ID>`, and
