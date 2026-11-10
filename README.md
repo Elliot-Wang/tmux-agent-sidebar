@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.2`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.3`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -29,6 +29,11 @@ priority even if its hooks have stopped updating. Session IDs, elapsed time,
 tool activity, and subagent details still require working hooks. Noninteractive
 command detection currently assumes the subcommand immediately follows `codex`.
 See [Codex setup](website/src/content/docs/getting-started/codex.md).
+
+The status bar has five filters: All (`≡`), Running (`●`), Waiting (`◐`),
+Idle (`○`), and Error (`✕`). Running includes live background commands; these
+still show their command details and return to idle when the process exits.
+Existing `background` filter settings migrate to Running.
 
 ## Hover auto-hide (optional)
 

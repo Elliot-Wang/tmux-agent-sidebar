@@ -4,17 +4,15 @@ use super::AppState;
 pub enum StatusFilter {
     All,
     Running,
-    Background,
     Waiting,
     Idle,
     Error,
 }
 
 impl StatusFilter {
-    pub const VARIANTS: [StatusFilter; 6] = [
+    pub const VARIANTS: [StatusFilter; 5] = [
         StatusFilter::All,
         StatusFilter::Running,
-        StatusFilter::Background,
         StatusFilter::Waiting,
         StatusFilter::Idle,
         StatusFilter::Error,
@@ -41,7 +39,6 @@ impl StatusFilter {
         match self {
             Self::All => "all",
             Self::Running => "running",
-            Self::Background => "background",
             Self::Waiting => "waiting",
             Self::Idle => "idle",
             Self::Error => "error",
@@ -49,11 +46,10 @@ impl StatusFilter {
     }
 
     /// Parse a tmux-option label into a `StatusFilter`. Unknown values
-    /// fall back to `All`.
+    /// fall back to `All`. Legacy `background` filters migrate to `Running`.
     pub fn from_label(s: &str) -> Self {
         match s {
-            "running" => Self::Running,
-            "background" => Self::Background,
+            "running" | "background" => Self::Running,
             "waiting" => Self::Waiting,
             "idle" => Self::Idle,
             "error" => Self::Error,
@@ -64,8 +60,10 @@ impl StatusFilter {
     pub fn matches(self, status: &crate::tmux::PaneStatus) -> bool {
         match self {
             StatusFilter::All => true,
-            StatusFilter::Running => *status == crate::tmux::PaneStatus::Running,
-            StatusFilter::Background => *status == crate::tmux::PaneStatus::Background,
+            StatusFilter::Running => matches!(
+                status,
+                crate::tmux::PaneStatus::Running | crate::tmux::PaneStatus::Background
+            ),
             StatusFilter::Waiting => *status == crate::tmux::PaneStatus::Waiting,
             StatusFilter::Idle => *status == crate::tmux::PaneStatus::Idle,
             StatusFilter::Error => *status == crate::tmux::PaneStatus::Error,
@@ -147,8 +145,7 @@ mod tests {
     #[test]
     fn status_filter_next_cycles() {
         assert_eq!(StatusFilter::All.next(), StatusFilter::Running);
-        assert_eq!(StatusFilter::Running.next(), StatusFilter::Background);
-        assert_eq!(StatusFilter::Background.next(), StatusFilter::Waiting);
+        assert_eq!(StatusFilter::Running.next(), StatusFilter::Waiting);
         assert_eq!(StatusFilter::Waiting.next(), StatusFilter::Idle);
         assert_eq!(StatusFilter::Idle.next(), StatusFilter::Error);
         assert_eq!(StatusFilter::Error.next(), StatusFilter::All);
@@ -159,8 +156,7 @@ mod tests {
         assert_eq!(StatusFilter::All.prev(), StatusFilter::Error);
         assert_eq!(StatusFilter::Error.prev(), StatusFilter::Idle);
         assert_eq!(StatusFilter::Idle.prev(), StatusFilter::Waiting);
-        assert_eq!(StatusFilter::Waiting.prev(), StatusFilter::Background);
-        assert_eq!(StatusFilter::Background.prev(), StatusFilter::Running);
+        assert_eq!(StatusFilter::Waiting.prev(), StatusFilter::Running);
         assert_eq!(StatusFilter::Running.prev(), StatusFilter::All);
     }
 
@@ -173,13 +169,10 @@ mod tests {
         assert!(StatusFilter::All.matches(&PaneStatus::Error));
 
         assert!(StatusFilter::Running.matches(&PaneStatus::Running));
-        assert!(!StatusFilter::Running.matches(&PaneStatus::Background));
+        assert!(StatusFilter::Running.matches(&PaneStatus::Background));
         assert!(!StatusFilter::Running.matches(&PaneStatus::Idle));
         assert!(!StatusFilter::Running.matches(&PaneStatus::Waiting));
         assert!(!StatusFilter::Running.matches(&PaneStatus::Error));
-
-        assert!(StatusFilter::Background.matches(&PaneStatus::Background));
-        assert!(!StatusFilter::Background.matches(&PaneStatus::Running));
 
         assert!(StatusFilter::Waiting.matches(&PaneStatus::Waiting));
         assert!(!StatusFilter::Waiting.matches(&PaneStatus::Running));
@@ -197,7 +190,6 @@ mod tests {
     fn status_filter_as_str_all_variants() {
         assert_eq!(StatusFilter::All.as_str(), "all");
         assert_eq!(StatusFilter::Running.as_str(), "running");
-        assert_eq!(StatusFilter::Background.as_str(), "background");
         assert_eq!(StatusFilter::Waiting.as_str(), "waiting");
         assert_eq!(StatusFilter::Idle.as_str(), "idle");
         assert_eq!(StatusFilter::Error.as_str(), "error");
@@ -209,7 +201,7 @@ mod tests {
         assert_eq!(StatusFilter::from_label("running"), StatusFilter::Running);
         assert_eq!(
             StatusFilter::from_label("background"),
-            StatusFilter::Background
+            StatusFilter::Running
         );
         assert_eq!(StatusFilter::from_label("waiting"), StatusFilter::Waiting);
         assert_eq!(StatusFilter::from_label("idle"), StatusFilter::Idle);

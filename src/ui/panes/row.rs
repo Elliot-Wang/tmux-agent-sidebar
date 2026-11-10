@@ -385,7 +385,7 @@ mod tests {
         );
         assert_eq!(
             running_icon_for(&PaneStatus::Background, 0, &icons),
-            ("◎", None)
+            ("●", None)
         );
 
         let (icon, color) = running_icon_for(&PaneStatus::Running, 0, &icons);

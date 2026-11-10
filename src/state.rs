@@ -1433,59 +1433,31 @@ mod tests {
     #[test]
     fn filter_click_all_positions() {
         let mut state = AppState::new("%99".into());
-        // With 0 agents, counts are all 0, so layout: " All  ●0  ◎0  ◐0  ○0  ✕0"
-        //                                              0123456789...
-
-        // "All" at x=1..3
-        state.global.status_filter = StatusFilter::Running;
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(1);
-        assert_eq!(state.global.status_filter, StatusFilter::All);
-
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(3);
-        assert_eq!(state.global.status_filter, StatusFilter::All);
-
-        // "●0" at x=6..7
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(6);
-        assert_eq!(state.global.status_filter, StatusFilter::Running);
-
-        // "◎0" at x=10..11
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(10);
-        assert_eq!(state.global.status_filter, StatusFilter::Background);
-
-        // "◐0" at x=14..15
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(14);
-        assert_eq!(state.global.status_filter, StatusFilter::Waiting);
-
-        // "○0" at x=18..19
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(18);
-        assert_eq!(state.global.status_filter, StatusFilter::Idle);
-
-        // "✕0" at x=22..23
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(22);
-        assert_eq!(state.global.status_filter, StatusFilter::Error);
+        // Layout: " ≡0  ●0  ◐0  ○0  ✕0". Test both icon and count.
+        for (start, expected) in [
+            (1, StatusFilter::All),
+            (5, StatusFilter::Running),
+            (9, StatusFilter::Waiting),
+            (13, StatusFilter::Idle),
+            (17, StatusFilter::Error),
+        ] {
+            for col in [start, start + 1] {
+                reset_filter_debounce(&mut state);
+                state.handle_filter_click(col);
+                assert_eq!(state.global.status_filter, expected);
+            }
+        }
     }
 
     #[test]
     fn filter_click_gap_does_nothing() {
         let mut state = AppState::new("%99".into());
         state.global.status_filter = StatusFilter::All;
-
-        // x=0 is leading space, x=4 and x=5 are separator
-        state.handle_filter_click(0);
-        assert_eq!(state.global.status_filter, StatusFilter::All);
-
-        state.handle_filter_click(4);
-        assert_eq!(state.global.status_filter, StatusFilter::All);
-
-        state.handle_filter_click(5);
-        assert_eq!(state.global.status_filter, StatusFilter::All);
+        for col in [0, 3, 4, 7, 8, 11, 12, 15, 16, 19] {
+            reset_filter_debounce(&mut state);
+            state.handle_filter_click(col);
+            assert_eq!(state.global.status_filter, StatusFilter::All);
+        }
     }
 
     #[test]
@@ -1511,11 +1483,14 @@ mod tests {
     #[test]
     fn filter_click_with_large_counts() {
         let mut state = AppState::new("%99".into());
-        // Add 10 running agents to shift positions
-        let panes: Vec<_> = (0..10)
+        let panes = (0..10)
             .map(|i| {
                 let mut p = test_pane(&format!("%{i}"));
-                p.status = PaneStatus::Running;
+                p.status = if i < 4 {
+                    PaneStatus::Running
+                } else {
+                    PaneStatus::Background
+                };
                 (p, PaneGitInfo::default())
             })
             .collect();
@@ -1524,25 +1499,18 @@ mod tests {
             has_focus: true,
             panes,
         }];
-        // Layout: " All  ●10  ◎0  ◐0  ○0  ✕0"
-        //          0123456789...
-        // "●10" at x=6..8 (icon + "10")
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(6);
-        assert_eq!(state.global.status_filter, StatusFilter::Running);
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(8);
-        assert_eq!(state.global.status_filter, StatusFilter::Running);
-
-        // "◎0" shifts to x=11..12
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(11);
-        assert_eq!(state.global.status_filter, StatusFilter::Background);
-
-        // "◐0" shifts to x=15..16
-        reset_filter_debounce(&mut state);
-        state.handle_filter_click(15);
-        assert_eq!(state.global.status_filter, StatusFilter::Waiting);
+        // Combined count crosses a digit boundary: " ≡10  ●10  ◐0  ○0  ✕0".
+        for (col, expected) in [
+            (6, StatusFilter::Running),
+            (8, StatusFilter::Running),
+            (11, StatusFilter::Waiting),
+            (15, StatusFilter::Idle),
+            (19, StatusFilter::Error),
+        ] {
+            reset_filter_debounce(&mut state);
+            state.handle_filter_click(col);
+            assert_eq!(state.global.status_filter, expected);
+        }
     }
 
     #[test]
@@ -1553,7 +1521,7 @@ mod tests {
         let mut p2 = test_pane("%2");
         p2.status = PaneStatus::Idle;
         let mut p3 = test_pane("%3");
-        p3.status = PaneStatus::Running;
+        p3.status = PaneStatus::Background;
         state.repo_groups = vec![RepoGroup {
             name: "project".into(),
             has_focus: true,
@@ -1568,7 +1536,7 @@ mod tests {
         assert_eq!(state.layout.pane_row_targets.len(), 3);
 
         // Click Running filter — row_targets should update immediately
-        // Layout: " All  ●2  ◎0  ◐0  ○1  ✕0" → Running at x=6
+        // Layout: " ≡3  ●2  ◐0  ○1  ✕0" → Running at x=6
         reset_filter_debounce(&mut state);
         state.handle_filter_click(6);
         assert_eq!(state.global.status_filter, StatusFilter::Running);
@@ -1577,9 +1545,9 @@ mod tests {
         assert_eq!(state.layout.pane_row_targets[1].pane_id, "%3");
 
         // Click Idle filter — row_targets should update again
-        // Layout: " All  ●2  ◎0  ◐0  ○1  ✕0" → Idle at x=18
+        // Layout: " ≡3  ●2  ◐0  ○1  ✕0" → Idle at x=14
         reset_filter_debounce(&mut state);
-        state.handle_filter_click(18);
+        state.handle_filter_click(14);
         assert_eq!(state.global.status_filter, StatusFilter::Idle);
         assert_eq!(state.layout.pane_row_targets.len(), 1);
         assert_eq!(state.layout.pane_row_targets[0].pane_id, "%2");
