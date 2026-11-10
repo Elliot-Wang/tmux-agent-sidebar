@@ -18,6 +18,11 @@ pub(super) fn handle_event(
     git_tab_active: &AtomicBool,
     terminal: &Terminal<CrosstermBackend<io::Stdout>>,
 ) -> bool {
+    // A click focuses the rail and the auto-hide controller expands it. Do not
+    // dispatch that click (or queued keys) against stale full-width hit targets.
+    if state.sidebar_collapsed {
+        return false;
+    }
     match ev {
         Event::Key(key) => handle_key_event(key, state, git_tab_active),
         Event::Mouse(mouse) => {

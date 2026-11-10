@@ -4,6 +4,7 @@ pub mod icons;
 pub mod notices;
 pub mod panes;
 pub mod pet;
+mod rail;
 pub mod text;
 
 use std::collections::HashMap;
@@ -54,6 +55,11 @@ pub fn pet_enabled_from_tmux() -> bool {
 // ── public entry point ──────────────────────────────────────────────
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
+    if state.sidebar_collapsed {
+        state.layout = Default::default();
+        rail::draw(frame, state);
+        return;
+    }
     state.layout.hyperlink_overlays.clear();
     let area = frame.area();
 

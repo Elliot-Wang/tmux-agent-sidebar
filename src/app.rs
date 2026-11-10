@@ -13,6 +13,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use crate::SPINNER_PULSE;
 use crate::state::BottomTab;
 
+mod auto_hide;
 mod input;
 mod render;
 mod setup;
@@ -31,6 +32,7 @@ pub fn run(
     needs_refresh: &'static AtomicBool,
 ) -> io::Result<()> {
     let mut state = setup::init_state(tmux_pane);
+    let mut auto_hide = auto_hide::AutoHide::new();
     let mut window_inactive_count: u32 = 0;
 
     let workers = workers::spawn(&state);
@@ -48,6 +50,7 @@ pub fn run(
     let mut needs_redraw = true;
 
     loop {
+        needs_redraw |= auto_hide.tick(&mut state);
         if needs_redraw {
             render::render_frame(terminal, &mut state)?;
             needs_redraw = false;

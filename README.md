@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.1`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.2`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -29,6 +29,44 @@ priority even if its hooks have stopped updating. Session IDs, elapsed time,
 tool activity, and subagent details still require working hooks. Noninteractive
 command detection currently assumes the subcommand immediately follows `codex`.
 See [Codex setup](website/src/content/docs/getting-started/codex.md).
+
+## Hover auto-hide (optional)
+
+On tmux 3.7b, enable a narrow hover rail before the plugin initialization:
+
+```tmux
+set -g mouse on
+set -g @sidebar_auto_hide on
+set -g @sidebar_collapsed_width 2
+set -g @sidebar_expand_delay 200
+set -g @sidebar_hide_delay 800
+set -g @sidebar_pin_key b
+```
+
+Delays are milliseconds. The rail expands to `@sidebar_width` (default `15%`)
+after hovering, without changing keyboard focus. Moving into another pane or
+the status bar starts the hide delay. A focused sidebar or an open sidebar
+menu stays expanded. `prefix + b` pins/unpins the current window's sidebar;
+`prefix + e` still closes or creates it. `!` counts waiting/error agents and
+`*` counts running/background agents; counts above nine display `+`.
+
+Set `@sidebar_auto_hide off` and reload the plugin to restore normal width and
+remove its mouse tracking. The setting defaults to off. Resizing uses a real
+tmux pane, so the main application's text reflows; this is not an overlay.
+Zoomed windows are left alone until unzoomed. Terminals must report mouse motion;
+when the pointer leaves the terminal entirely, tmux retains its last position
+until the next mouse event. Multiple clients sharing a window share its width.
+
+The plugin uses an otherwise unbound `root Any` key to observe motion on tmux
+3.7b. Existing specific bindings retain priority; other keys and mouse events
+are forwarded. If a custom `root Any` already exists, auto-hide stays disabled
+instead of replacing it. A custom pin-key binding is also preserved.
+
+To run the isolated PTY/mouse integration test after `cargo build`:
+
+```sh
+python3 tests/auto_hide_smoke.py
+```
 
 <p align="center">One tmux sidebar that tracks every Claude Code, Codex, and OpenCode pane across every session and window. See status, background shells, prompts, Git state, activity, and worktrees without switching windows.</p>
 

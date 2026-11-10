@@ -26,3 +26,4 @@ fi
 tmux set -g @agent_sidebar_bin "$SIDEBAR_BINARY"
 
 tmux source-file "$PLUGIN_DIR/agent-sidebar.conf"
+bash "$PLUGIN_DIR/scripts/auto-hide-mouse.sh"

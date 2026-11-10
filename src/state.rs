@@ -56,6 +56,8 @@ pub struct AppState {
     pub layout: FrameLayout,
     pub activity: ActivityState,
     pub tmux_pane: String,
+    /// True while auto-hide presents only the narrow hover rail.
+    pub sidebar_collapsed: bool,
     /// Scroll offsets for the agents list and git tab. Activity tab
     /// scroll lives in [`ActivityState::scroll`].
     pub scrolls: ScrollStates,
@@ -147,6 +149,7 @@ impl AppState {
             layout: FrameLayout::default(),
             activity: ActivityState::new(),
             tmux_pane,
+            sidebar_collapsed: false,
             scrolls: ScrollStates::default(),
             theme: ColorTheme::default(),
             icons: StatusIcons::default(),
