@@ -140,3 +140,82 @@ fn resumed_client_can_exit_again_before_identity_bridge_expires() {
     assert_eq!(db["codex:abc"].closed_at, Some(108));
     assert_eq!(db["codex:abc"].pending_until, 0);
 }
+
+fn snapshot(panes: Vec<PaneInfo>) -> Vec<SessionInfo> {
+    vec![SessionInfo {
+        session_name: "test".into(),
+        windows: vec![WindowInfo {
+            window_id: "@1".into(),
+            window_name: "test".into(),
+            window_active: true,
+            auto_rename: false,
+            panes,
+        }],
+    }]
+}
+
+fn visible(sessions: &[SessionInfo]) -> Vec<&PaneInfo> {
+    sessions
+        .iter()
+        .flat_map(|s| &s.windows)
+        .flat_map(|w| &w.panes)
+        .collect()
+}
+
+#[test]
+fn missing_session_stays_visible_during_grace_and_reconnects_without_duplicate() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut history = History::new(dir.path().join("history.json"));
+    let p = pane("%1", Some("abc"));
+    let mut live = snapshot(vec![p.clone()]);
+    history.sync(&mut live, 100, 30).unwrap();
+    let key = identity(&p);
+    for now in 101..=103 {
+        let mut missing = vec![];
+        history.sync(&mut missing, now, 30).unwrap();
+        let rows = visible(&missing);
+        assert_eq!(rows.len(), 1, "the row must never disappear during exit");
+        assert_eq!(identity(rows[0]), key);
+        assert_eq!(is_retained(&rows[0].pane_id), now == 103);
+        if now < 103 {
+            assert_eq!(rows[0].status, PaneStatus::Running);
+            assert_eq!(history.record("%1").unwrap().key, key);
+        } else {
+            assert_eq!(rows[0].status, PaneStatus::Idle);
+        }
+    }
+    let mut resumed = snapshot(vec![pane("%9", Some("abc"))]);
+    history.sync(&mut resumed, 104, 30).unwrap();
+    assert_eq!(visible(&resumed).len(), 1);
+    assert_eq!(identity(visible(&resumed)[0]), key);
+    assert!(!is_retained(&visible(&resumed)[0].pane_id));
+}
+
+#[test]
+fn brief_discovery_gap_keeps_the_same_live_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut history = History::new(dir.path().join("history.json"));
+    let p = pane("%1", Some("abc"));
+    for (now, available) in [(100, true), (101, false), (102, true)] {
+        let mut sessions = snapshot(if available { vec![p.clone()] } else { vec![] });
+        history.sync(&mut sessions, now, 30).unwrap();
+        assert_eq!(visible(&sessions).len(), 1);
+        assert_eq!(visible(&sessions)[0].pane_id, "%1");
+        assert!(history.entries["codex:abc"].closed_at.is_none());
+    }
+}
+
+#[test]
+fn pane_reuse_during_grace_does_not_create_duplicate_click_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut history = History::new(dir.path().join("history.json"));
+    history
+        .sync(&mut snapshot(vec![pane("%1", Some("abc"))]), 100, 30)
+        .unwrap();
+    let mut sessions = snapshot(vec![pane("%1", Some("def"))]);
+    history.sync(&mut sessions, 101, 30).unwrap();
+    let rows = visible(&sessions);
+    assert_eq!(rows.len(), 2);
+    assert_ne!(rows[0].pane_id, rows[1].pane_id);
+    assert_eq!(history.entries["codex:abc"].closed_at, Some(101));
+}

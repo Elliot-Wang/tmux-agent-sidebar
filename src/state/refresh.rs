@@ -72,7 +72,39 @@ impl AppState {
                     .map(|(p, _)| (p.pane_id.clone(), p.session_id.clone()))
             })
             .collect();
+        let selected = self
+            .retained
+            .as_ref()
+            .and_then(|_| self.selected_pane())
+            .map(|p| {
+                (
+                    crate::retained::identity(p),
+                    p.pane_id.clone(),
+                    p.session_id.is_none(),
+                )
+            });
+        let mut previous_order = HashMap::new();
+        let mut previous_panes = HashMap::new();
+        if self.retained.is_some() {
+            for (index, (pane, _)) in self.repo_groups.iter().flat_map(|g| &g.panes).enumerate() {
+                previous_order.insert(crate::retained::identity(pane), index);
+                if pane.session_id.is_none() {
+                    previous_panes.insert(pane.pane_id.clone(), index);
+                }
+            }
+        }
         self.repo_groups = crate::group::group_panes_by_repo(&sessions);
+        if self.retained.is_some() {
+            for group in &mut self.repo_groups {
+                group.panes.sort_by_key(|(pane, _)| {
+                    previous_order
+                        .get(&crate::retained::identity(pane))
+                        .or_else(|| previous_panes.get(&pane.pane_id))
+                        .copied()
+                        .unwrap_or(usize::MAX)
+                });
+            }
+        }
         if !self.sessions.dirty
             && self
                 .repo_groups
@@ -87,6 +119,29 @@ impl AppState {
         }
         self.prune_pane_states_to_current_panes();
         self.rebuild_row_targets();
+        if let Some((key, old_pane, unresolved)) = selected {
+            let index = self
+                .layout
+                .pane_row_targets
+                .iter()
+                .position(|target| {
+                    self.pane_by_id(&target.pane_id)
+                        .is_some_and(|pane| crate::retained::identity(pane) == key)
+                })
+                .or_else(|| {
+                    unresolved
+                        .then(|| {
+                            self.layout
+                                .pane_row_targets
+                                .iter()
+                                .position(|target| target.pane_id == old_pane)
+                        })
+                        .flatten()
+                });
+            if let Some(index) = index {
+                self.global.selected_pane_row = index;
+            }
+        }
         self.find_focused_pane();
     }
 
@@ -491,6 +546,86 @@ mod tests {
                 panes,
             }],
         }]
+    }
+
+    #[test]
+    fn retained_exit_preserves_row_order_selection_and_filter_count() {
+        use crate::retained::{History, identity, is_retained};
+        use crate::state::StatusFilter;
+        for filter in [StatusFilter::All, StatusFilter::Idle] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut state = AppState::new("%99".into());
+            state.retained = Some(History::new(dir.path().join("history.json")));
+            state.global.status_filter = filter;
+            let mut first = test_pane("%1");
+            first.session_id = Some("first".into());
+            first.status = PaneStatus::Idle;
+            let mut second = first.clone();
+            second.pane_id = "%2".into();
+            second.session_id = Some("second".into());
+            let mut initial = test_session(vec![first.clone(), second.clone()]);
+            state
+                .retained
+                .as_mut()
+                .unwrap()
+                .sync(&mut initial, 100, 30)
+                .unwrap();
+            state.apply_session_snapshot(true, initial);
+            state.global.selected_pane_row = 0;
+            let first_key = identity(&first);
+            let second_key = identity(&second);
+            for now in 101..=104 {
+                let mut next = test_session(vec![second.clone()]);
+                state
+                    .retained
+                    .as_mut()
+                    .unwrap()
+                    .sync(&mut next, now, 30)
+                    .unwrap();
+                state.apply_session_snapshot(true, next);
+                let keys: Vec<_> = state
+                    .repo_groups
+                    .iter()
+                    .flat_map(|g| &g.panes)
+                    .map(|(p, _)| identity(p))
+                    .collect();
+                assert_eq!(keys, vec![first_key.clone(), second_key.clone()]);
+                assert_eq!(state.layout.pane_row_targets.len(), 2);
+                assert_eq!(identity(state.selected_pane().unwrap()), first_key);
+                assert_eq!(
+                    is_retained(&state.selected_pane().unwrap().pane_id),
+                    now >= 103
+                );
+            }
+            // A resumed session appears later in tmux enumeration, but keeps
+            // its original list position and cursor rather than moving down.
+            first.pane_id = "%9".into();
+            let mut resumed = test_session(vec![second, first]);
+            state
+                .retained
+                .as_mut()
+                .unwrap()
+                .sync(&mut resumed, 105, 30)
+                .unwrap();
+            state.apply_session_snapshot(true, resumed);
+            assert_eq!(state.global.selected_pane_row, 0);
+            assert_eq!(state.selected_pane().unwrap().pane_id, "%9");
+            assert_eq!(state.layout.pane_row_targets.len(), 2);
+            // Reusing that terminal for a different conversation must not
+            // redirect the old conversation's cursor to the new session.
+            let mut replacement = state.selected_pane().unwrap().clone();
+            replacement.session_id = Some("third".into());
+            let mut changed = test_session(vec![replacement]);
+            state
+                .retained
+                .as_mut()
+                .unwrap()
+                .sync(&mut changed, 106, 30)
+                .unwrap();
+            state.apply_session_snapshot(true, changed);
+            assert_eq!(identity(state.selected_pane().unwrap()), first_key);
+            assert!(is_retained(&state.selected_pane().unwrap().pane_id));
+        }
     }
 
     // ─── clear_dead_bg_shells ───────────────────────────────────────

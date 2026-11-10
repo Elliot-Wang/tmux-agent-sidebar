@@ -22,6 +22,28 @@ pub fn stable_hash(s: &str) -> u64 {
     })
 }
 
+/// Conversation identity survives pane exit and resume in a different window.
+pub fn identity(pane: &PaneInfo) -> String {
+    pane.pane_id
+        .strip_prefix(SAVED_PREFIX)
+        .map(str::to_owned)
+        .unwrap_or_else(|| live_key(pane, pane.session_id.as_deref()))
+}
+
+fn live_key(pane: &PaneInfo, session_id: Option<&str>) -> String {
+    match session_id {
+        Some(sid) => format!("{}:{sid}", pane.agent.as_str()),
+        None => format!(
+            "{}:unknown:{:016x}",
+            pane.agent.as_str(),
+            stable_hash(&format!(
+                "{}|{:?}|{}|{}",
+                pane.pane_id, pane.pane_pid, pane.path, pane.prompt
+            ))
+        ),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     pub key: String,
@@ -95,6 +117,7 @@ pub struct History {
     pub entries: BTreeMap<String, Entry>,
     row_keys: BTreeMap<String, String>,
     codex: codex::Index,
+    last_live: BTreeMap<String, PaneInfo>,
 }
 
 impl History {
@@ -104,6 +127,7 @@ impl History {
             entries: BTreeMap::new(),
             row_keys: BTreeMap::new(),
             codex: Default::default(),
+            last_live: BTreeMap::new(),
         }
     }
     pub fn for_pane(pane: &str) -> Result<Self, String> {
@@ -159,13 +183,44 @@ impl History {
         })?;
         self.entries = db;
         self.row_keys = rows;
-        let ghosts: Vec<_> = self
-            .entries
-            .values()
-            .filter(|e| e.closed_at.is_some())
-            .map(Entry::ghost)
-            .collect();
-        if !ghosts.is_empty() {
+        let seen: HashSet<_> = self.row_keys.values().cloned().collect();
+        for pane in sessions
+            .iter_mut()
+            .flat_map(|s| &mut s.windows)
+            .flat_map(|w| &mut w.panes)
+        {
+            if let Some(key) = self.row_keys.get(&pane.pane_id) {
+                // Also expose a resume claim's exact ID before the agent's own
+                // metadata arrives, so row identity remains stable.
+                if pane.session_id.is_none() {
+                    pane.session_id = self.entries[key].session_id.clone();
+                }
+                self.last_live.insert(key.clone(), pane.clone());
+            }
+        }
+        let mut retained = Vec::new();
+        for (key, entry) in &self.entries {
+            if seen.contains(key) {
+                continue;
+            }
+            let pane = if entry.closed_at.is_some() {
+                entry.ghost()
+            } else {
+                // Keep the last visible row throughout the absence grace
+                // period. It used to disappear until closed_at was set.
+                self.last_live.get(key).cloned().unwrap_or_else(|| {
+                    let mut pane = entry.ghost();
+                    pane.pane_id = entry.live_pane.clone();
+                    pane.pane_pid = entry.live_pid;
+                    pane
+                })
+            };
+            self.row_keys.insert(pane.pane_id.clone(), key.clone());
+            retained.push(pane);
+        }
+        self.last_live
+            .retain(|key, _| self.entries.contains_key(key));
+        if !retained.is_empty() {
             sessions.push(SessionInfo {
                 session_name: "retained sessions".into(),
                 windows: vec![WindowInfo {
@@ -173,7 +228,7 @@ impl History {
                     window_name: "retained".into(),
                     window_active: false,
                     auto_rename: false,
-                    panes: ghosts,
+                    panes: retained,
                 }],
             });
         }
@@ -330,18 +385,7 @@ fn reconcile(
             .session_id
             .clone()
             .or_else(|| pending.and_then(|e| e.session_id.clone()));
-        let key = if let Some(sid) = &sid {
-            format!("{}:{sid}", p.agent.as_str())
-        } else {
-            format!(
-                "{}:unknown:{:016x}",
-                p.agent.as_str(),
-                stable_hash(&format!(
-                    "{}|{:?}|{}|{}",
-                    p.pane_id, p.pane_pid, p.path, p.prompt
-                ))
-            )
-        };
+        let key = live_key(p, sid.as_deref());
         // Upgrade previously unresolved records without losing their pin.
         let old_key = db
             .iter()
@@ -379,10 +423,12 @@ fn reconcile(
     }
     for (key, e) in db.iter_mut() {
         if !seen.contains(key)
-            && now.saturating_sub(e.last_seen) >= GRACE_SECONDS
+            && (now.saturating_sub(e.last_seen) >= GRACE_SECONDS || rows.contains_key(&e.live_pane))
             && e.closed_at.is_none()
         {
-            e.closed_at = Some(e.last_seen.saturating_add(GRACE_SECONDS));
+            // A different conversation in the same pane confirms the old
+            // one closed; do not retain two rows with the same pane target.
+            e.closed_at = Some(now.min(e.last_seen.saturating_add(GRACE_SECONDS)));
             e.pending_until = 0;
         }
     }
