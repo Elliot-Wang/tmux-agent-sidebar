@@ -167,18 +167,18 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 }
                 if closed {
                     let hint = if entry.pending_until > state.now {
-                        "resuming..."
+                        Some("resuming...")
                     } else if entry.session_id.is_none() {
-                        "closed; resume ID unavailable"
-                    } else if entry.pinned {
-                        "closed; pinned"
+                        Some("resume ID unavailable")
                     } else {
-                        "closed"
+                        None
                     };
-                    pane_lines.push(Line::from(Span::styled(
-                        crate::ui::text::truncate_to_width(&format!("    {hint}"), width),
-                        Style::default().fg(theme.text_muted),
-                    )));
+                    if let Some(hint) = hint {
+                        pane_lines.push(Line::from(Span::styled(
+                            crate::ui::text::truncate_to_width(&format!("    {hint}"), width),
+                            Style::default().fg(theme.text_muted),
+                        )));
+                    }
                 }
             }
             let pane_line_count = pane_lines.len();

@@ -9,6 +9,7 @@ pub struct StatusIcons {
     running: String,
     waiting: String,
     idle: String,
+    closed: String,
     error: String,
     unknown: String,
 }
@@ -20,6 +21,7 @@ impl Default for StatusIcons {
             running: "●".into(),
             waiting: "◐".into(),
             idle: "○".into(),
+            closed: "◌".into(),
             error: "✕".into(),
             unknown: "·".into(),
         }
@@ -49,6 +51,7 @@ impl StatusIcons {
         icons.running = read(tmux::SIDEBAR_ICON_RUNNING, &icons.running);
         icons.waiting = read(tmux::SIDEBAR_ICON_WAITING, &icons.waiting);
         icons.idle = read(tmux::SIDEBAR_ICON_IDLE, &icons.idle);
+        icons.closed = read(tmux::SIDEBAR_ICON_CLOSED, &icons.closed);
         icons.error = read(tmux::SIDEBAR_ICON_ERROR, &icons.error);
         icons.unknown = read(tmux::SIDEBAR_ICON_UNKNOWN, &icons.unknown);
         icons
@@ -57,6 +60,11 @@ impl StatusIcons {
     /// Icon used for the "All" filter (not tied to any PaneStatus).
     pub fn all_icon(&self) -> &str {
         self.all.as_str()
+    }
+
+    /// Retained closed conversations still belong to the Idle filter.
+    pub fn closed_icon(&self) -> &str {
+        self.closed.as_str()
     }
 
     pub fn status_icon(&self, status: &PaneStatus) -> &str {

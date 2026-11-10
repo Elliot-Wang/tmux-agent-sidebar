@@ -89,7 +89,9 @@ pub(super) fn render_pane_lines_with_ports(
     }
     if !pane.prompt.is_empty() {
         out.extend(prompt_rows(pane, ctx));
-    } else if matches!(pane.status, PaneStatus::Idle) {
+    } else if matches!(pane.status, PaneStatus::Idle)
+        && !crate::retained::is_retained(&pane.pane_id)
+    {
         out.push(idle_hint_row(ctx));
     }
     out

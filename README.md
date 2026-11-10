@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.4`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.5`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -39,7 +39,9 @@ Existing `background` filter settings migrate to Running.
 ## Retained idle sessions and session pins
 
 After an observed agent exits or its pane closes, its conversation stays in
-**Idle** (and **All**) with a `closed` label for 30 minutes. Configure the duration
+**Idle** (and **All**) with a muted `◌` status icon for 30 minutes. Live idle
+sessions keep `○`; the closed icon can be customized with `@sidebar_icon_closed`.
+Configure the duration
 in `~/.tmux.conf` before plugin initialization:
 
 ```tmux

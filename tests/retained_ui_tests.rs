@@ -41,9 +41,8 @@ fn closed_pinned_session_has_pin_and_resume_controls() {
      ≡1  ●0  ◐0  ○1  ✕0
     ⓘ                            — ▾
     project
-      ○ claude                 [P] +
+      ◌ claude                 [P] +
         Review patch
-        closed; pinned
     ");
     let targets = &state.layout.session_actions;
     assert_eq!(targets.len(), 2);

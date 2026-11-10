@@ -129,6 +129,7 @@ pub const SIDEBAR_ICON_ALL: &str = "@sidebar_icon_all";
 pub const SIDEBAR_ICON_RUNNING: &str = "@sidebar_icon_running";
 pub const SIDEBAR_ICON_BACKGROUND: &str = "@sidebar_icon_background";
 pub const SIDEBAR_ICON_WAITING: &str = "@sidebar_icon_waiting";
+pub const SIDEBAR_ICON_CLOSED: &str = "@sidebar_icon_closed";
 pub const SIDEBAR_ICON_IDLE: &str = "@sidebar_icon_idle";
 pub const SIDEBAR_ICON_ERROR: &str = "@sidebar_icon_error";
 pub const SIDEBAR_ICON_UNKNOWN: &str = "@sidebar_icon_unknown";
