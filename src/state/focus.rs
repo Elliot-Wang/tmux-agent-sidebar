@@ -87,6 +87,10 @@ impl AppState {
             .get(self.global.selected_pane_row)
             .map(|target| target.pane_id.clone())
         {
+            if crate::retained::is_retained(&target_pane_id) {
+                self.resume_retained(&target_pane_id);
+                return;
+            }
             // Update the sidebar immediately so the active marker and
             // repo header highlight move without waiting for the next
             // periodic tmux refresh.

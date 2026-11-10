@@ -151,14 +151,13 @@ impl AppState {
         self.sweep_dead_bg_shells_if_due(&mut sessions, &mut process_snapshot);
         if let Some(process_snapshot) = self.refresh_port_data(&sessions, process_snapshot.as_ref())
         {
-            let sessions = Self::filter_sessions_to_live_agent_panes(
+            sessions = Self::filter_sessions_to_live_agent_panes(
                 sessions,
                 &process_snapshot.live_agent_panes,
             );
-            self.apply_session_snapshot(focused, sessions);
-        } else {
-            self.apply_session_snapshot(focused, sessions);
         }
+        self.retain_closed_sessions(&mut sessions);
+        self.apply_session_snapshot(focused, sessions);
         if self.sessions.dirty {
             self.refresh_session_names();
             self.sessions.dirty = false;

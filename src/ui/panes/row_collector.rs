@@ -5,7 +5,7 @@ use ratatui::{
 
 use super::SPAWN_BUTTON;
 use super::row;
-use crate::state::{AppState, Focus};
+use crate::state::{AppState, Focus, SessionAction};
 use crate::ui::text::display_width;
 
 #[derive(Debug, Default)]
@@ -14,6 +14,7 @@ pub(super) struct CollectedRows {
     pub line_to_row: Vec<Option<usize>>,
     pub pending_spawn: Vec<(usize, String, String)>,
     pub pending_remove: Vec<(usize, u16, String)>,
+    pub pending_session_actions: Vec<(usize, u16, u16, String, SessionAction)>,
 }
 
 pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
@@ -104,19 +105,82 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             let ports = pane_state.map(|s| s.ports.as_slice());
             let task_progress = pane_state.and_then(|s| s.task_progress.as_ref());
             let status_line_idx = collected.lines.len();
-            let pane_lines = row::render_pane_lines_with_ports(
+            let retained = state.retained_entry(&pane.pane_id);
+            let closed = crate::retained::is_retained(&pane.pane_id);
+            let actions_width = if retained.is_some() && width >= 10 {
+                if closed { 5 } else { 3 }
+            } else {
+                0
+            };
+            let content_width = width.saturating_sub(if actions_width > 0 {
+                actions_width + 1
+            } else {
+                0
+            });
+            let mut pane_lines = row::render_pane_lines_with_ports(
                 pane,
                 git_info,
                 ports,
                 task_progress,
                 is_selected,
                 is_active,
-                width,
+                content_width,
                 &state.icons,
                 theme,
                 state.spinner_frame,
                 state.now,
             );
+            if let Some(entry) = retained {
+                if actions_width > 0 {
+                    let line = &mut pane_lines[0];
+                    let pin_col = width - actions_width;
+                    line.spans
+                        .push(Span::raw(" ".repeat(pin_col.saturating_sub(line.width()))));
+                    line.spans.push(Span::styled(
+                        if entry.pinned { "[P]" } else { "[p]" },
+                        Style::default().fg(if entry.pinned {
+                            theme.accent
+                        } else {
+                            theme.text_muted
+                        }),
+                    ));
+                    collected.pending_session_actions.push((
+                        status_line_idx,
+                        pin_col as u16,
+                        3,
+                        pane.pane_id.clone(),
+                        SessionAction::Pin,
+                    ));
+                    if closed {
+                        line.spans.push(Span::styled(
+                            format!(" {SPAWN_BUTTON}"),
+                            Style::default().fg(theme.accent),
+                        ));
+                        collected.pending_session_actions.push((
+                            status_line_idx,
+                            (width - 1) as u16,
+                            1,
+                            pane.pane_id.clone(),
+                            SessionAction::Resume,
+                        ));
+                    }
+                }
+                if closed {
+                    let hint = if entry.pending_until > state.now {
+                        "resuming..."
+                    } else if entry.session_id.is_none() {
+                        "closed; resume ID unavailable"
+                    } else if entry.pinned {
+                        "closed; pinned"
+                    } else {
+                        "closed"
+                    };
+                    pane_lines.push(Line::from(Span::styled(
+                        crate::ui::text::truncate_to_width(&format!("    {hint}"), width),
+                        Style::default().fg(theme.text_muted),
+                    )));
+                }
+            }
             let pane_line_count = pane_lines.len();
             collected.lines.extend(pane_lines);
             for _ in 0..pane_line_count {
@@ -132,8 +196,12 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             if pane.sidebar_spawned
                 && git_info.is_worktree
                 && pane_line_count >= 2
-                && let Some(x) =
-                    row::sidebar_remove_marker_col(git_info, ports, true, width.saturating_sub(2))
+                && let Some(x) = row::sidebar_remove_marker_col(
+                    git_info,
+                    ports,
+                    true,
+                    content_width.saturating_sub(2),
+                )
             {
                 collected
                     .pending_remove

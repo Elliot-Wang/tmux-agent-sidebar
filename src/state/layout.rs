@@ -1,3 +1,15 @@
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SessionAction {
+    Pin,
+    Resume,
+}
+#[derive(Debug, Clone)]
+pub struct SessionActionTarget {
+    pub rect: ratatui::layout::Rect,
+    pub pane_id: String,
+    pub action: SessionAction,
+}
+
 use super::{AppState, RepoFilter, StatusFilter};
 
 #[derive(Debug, Clone)]
@@ -42,6 +54,7 @@ pub struct HyperlinkOverlay {
 /// `AppState` only holds data that survives across frames.
 #[derive(Debug, Clone, Default)]
 pub struct FrameLayout {
+    pub session_actions: Vec<SessionActionTarget>,
     /// Filtered pane list, in the order the UI rendered them. Index
     /// matches `GlobalState::selected_pane_row`.
     pub pane_row_targets: Vec<RowTarget>,
@@ -244,6 +257,20 @@ impl AppState {
             return;
         }
 
+        if let Some((id, action)) = self
+            .layout
+            .session_actions
+            .iter()
+            .find(|t| point_in_rect(row, col, t.rect))
+            .map(|t| (t.pane_id.clone(), t.action))
+        {
+            match action {
+                SessionAction::Pin => self.toggle_session_pin(&id),
+                SessionAction::Resume => self.resume_retained(&id),
+            }
+            return;
+        }
+
         // Check the `+` spawn buttons before the pane-row fallback so a
         // click on the button doesn't also shift the pane selection.
         if let Some((repo_name, repo_root, anchor_y)) = self
@@ -253,7 +280,9 @@ impl AppState {
             .find(|t| point_in_rect(row, col, t.rect))
             .map(|t| (t.repo_name.clone(), t.repo_root.clone(), t.rect.y))
         {
-            self.open_spawn_input_for_repo(repo_name, repo_root, Some(anchor_y));
+            if !self.resume_selected_in_group(&repo_name) {
+                self.open_spawn_input_for_repo(repo_name, repo_root, Some(anchor_y));
+            }
             return;
         }
 
@@ -273,7 +302,12 @@ impl AppState {
         if let Some(Some(agent_row)) = self.layout.line_to_row.get(line_index) {
             self.global.selected_pane_row = *agent_row;
             self.global.queue_cursor_save();
-            self.activate_selected_pane();
+            if !self
+                .selected_pane()
+                .is_some_and(|p| crate::retained::is_retained(&p.pane_id))
+            {
+                self.activate_selected_pane();
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ mod pane_runtime;
 mod pet;
 mod popup;
 mod refresh;
+mod retained;
 mod scroll;
 mod session;
 mod tab;
@@ -22,7 +23,10 @@ pub use activity::ActivityState;
 pub use filter::{RepoFilter, StatusFilter};
 pub use focus::{Focus, FocusState};
 pub use global::GlobalState;
-pub use layout::{FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SpawnRemoveTarget};
+pub use layout::{
+    FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionAction, SessionActionTarget,
+    SpawnRemoveTarget,
+};
 pub(crate) use notices::debug_forced_display;
 pub use notices::{ClaudePluginNotice, NoticesCopyTarget, NoticesMissingHookGroup, NoticesState};
 pub use pane_runtime::{PaneRuntimeMap, PaneRuntimeState};
@@ -41,6 +45,7 @@ pub enum BottomTab {
 
 pub struct AppState {
     pub now: u64,
+    pub retained: Option<crate::retained::History>,
     pub repo_groups: Vec<crate::group::RepoGroup>,
     /// Sidebar focus + pane focus tracking (sidebar_focused, focus,
     /// focused_pane_id, prev_focused_pane_id).
@@ -142,6 +147,7 @@ impl AppState {
     pub fn new(tmux_pane: String) -> Self {
         let mut state = Self {
             now: 0,
+            retained: None,
             repo_groups: vec![],
             focus_state: FocusState::new(),
             flash: None,

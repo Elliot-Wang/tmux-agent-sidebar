@@ -26,7 +26,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='sidebar-hover-') as tmp:
         socket = str(Path(tmp) / 'tmux.sock')
         received = Path(tmp) / 'input.bin'
-        env = dict(os.environ, TERM='xterm-256color', TMUX=f'{socket},0,0')
+        env = dict(os.environ, TERM='xterm-256color', TMUX=f'{socket},0,0',
+                   TMUX_AGENT_SIDEBAR_STATE_DIR=str(Path(tmp) / 'state'))
         env.pop('TMUX_PANE', None)
         def tmux(*args):
             return subprocess.check_output(['tmux', '-S', socket, *args], env=env, text=True, timeout=8).strip()

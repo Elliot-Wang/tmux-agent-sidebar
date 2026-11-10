@@ -147,6 +147,13 @@ pub(super) fn handle_key_event(
                 state.open_spawn_input_from_selection();
             }
         }
+        KeyCode::Char('p') => {
+            if state.focus_state.focus == Focus::Panes
+                && let Some(id) = state.selected_pane().map(|p| p.pane_id.clone())
+            {
+                state.toggle_session_pin(&id);
+            }
+        }
         KeyCode::Char('x') => {
             if state.focus_state.focus == Focus::Panes {
                 state.open_remove_confirm();
@@ -326,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn bare_p_is_unbound_in_panes_focus() {
+    fn pin_action_does_not_move_pane_selection() {
         let mut state = state_with_three_panes();
         state.global.selected_pane_row = 1;
         let flag = AtomicBool::new(false);

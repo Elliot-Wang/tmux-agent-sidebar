@@ -1,4 +1,5 @@
 pub mod capture;
+mod history;
 mod hook;
 mod label;
 pub mod plugin_state;
@@ -19,6 +20,7 @@ pub fn run(args: &[String]) -> Option<i32> {
     let code = match cmd {
         "setup" => setup::cmd_setup(rest),
         "hook" => hook::cmd_hook(rest),
+        "history" => history::run(rest),
         "toggle" => toggle::cmd_toggle(rest),
         "toggle-all" => toggle::cmd_toggle_all(rest),
         "auto-close" => toggle::cmd_auto_close(rest),

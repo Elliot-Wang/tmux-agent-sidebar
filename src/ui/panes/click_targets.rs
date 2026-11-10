@@ -59,6 +59,32 @@ pub(super) fn materialize(
         .collect();
 }
 
+pub(super) fn materialize_sessions(
+    state: &mut AppState,
+    pending: Vec<(usize, u16, u16, String, crate::state::SessionAction)>,
+    scroll_offset: usize,
+    area: Rect,
+) {
+    state.layout.session_actions = pending
+        .into_iter()
+        .filter_map(|(line, col, width, pane_id, action)| {
+            if line < scroll_offset || line - scroll_offset >= area.height as usize {
+                return None;
+            }
+            Some(crate::state::SessionActionTarget {
+                rect: Rect::new(
+                    area.x + col,
+                    area.y + (line - scroll_offset) as u16,
+                    width,
+                    1,
+                ),
+                pane_id,
+                action,
+            })
+        })
+        .collect();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

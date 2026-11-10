@@ -229,6 +229,10 @@ impl AppState {
             return;
         };
         let pane_id = pane.pane_id.clone();
+        if crate::retained::is_retained(&pane_id) {
+            self.resume_retained(&pane_id);
+            return;
+        }
         let Some(group) = self
             .repo_groups
             .iter()
