@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::process::{ProcessSnapshot, command_basename};
+use crate::process::{ProcessSnapshot, command_basename, process_matches_agent};
 
 use super::commands::run_tmux;
 use super::options::{
@@ -57,6 +57,7 @@ pub(super) mod pane_line_field {
     pub const SESSION_ID: usize = 19; // absolute 25 (@pane_session_id)
     pub const SIDEBAR_SPAWNED: usize = 20; // absolute 26 (@agent-sidebar-spawned)
     pub const BG_CMD: usize = 21; // absolute 27 (@pane_bg_cmd)
+    pub const TITLE: usize = 22; // absolute 28 (pane_title); optional for old fixtures
     /// Minimum number of fields the pane-line suffix must contain.
     /// Equals `session_line_field::MIN_FIELDS - PANE_LINE_OFFSET`.
     pub const MIN_FIELDS: usize = 22;
@@ -95,6 +96,7 @@ fn pane_format() -> String {
         q(PANE_SESSION_ID),
         q(SPAWNED_OPTION),
         q(PANE_BG_CMD),
+        q("pane_title"),
     ]
     .join("|")
 }
@@ -263,7 +265,13 @@ fn parse_pane_fields_with_processes(
         return None;
     }
 
-    let agent = AgentType::from_label(&parts[pane_line_field::AGENT])?;
+    let agent = match AgentType::from_label(&parts[pane_line_field::AGENT]) {
+        Some(agent) => agent,
+        None if parts[pane_line_field::AGENT].is_empty() => {
+            return discover_codex_pane(parts, process_snapshot);
+        }
+        None => return None,
+    };
     let current_command = parts[pane_line_field::PANE_CURRENT_COMMAND].as_str();
     let pane_pid: Option<u32> = parts[pane_line_field::PANE_PID].parse().ok();
 
@@ -444,9 +452,121 @@ fn pane_output_needs_process_snapshot(all_panes_output: &str) -> bool {
             return false;
         }
         let pane_fields = &parts[session_line_field::PANE_LINE_OFFSET..];
+        if pane_fields[pane_line_field::PANE_ROLE] == "sidebar" {
+            return false;
+        }
+        if pane_fields[pane_line_field::AGENT].is_empty()
+            && matches!(
+                command_basename(&pane_fields[pane_line_field::PANE_CURRENT_COMMAND]),
+                "codex" | "node"
+            )
+        {
+            return true;
+        }
         AgentType::from_label(&pane_fields[pane_line_field::AGENT])
             .is_some_and(|agent| matches!(agent, AgentType::Codex | AgentType::OpenCode))
     })
+}
+
+/// Shared-daemon Codex hooks do not inherit the TUI's TMUX_PANE. Discover
+/// the attached CLI instead, without writing synthetic hook metadata: doing
+/// so would freeze this fallback after the first poll or leak state on exit.
+fn discover_codex_pane(parts: &[String], snapshot: Option<&ProcessSnapshot>) -> Option<PaneInfo> {
+    if !matches!(
+        command_basename(&parts[pane_line_field::PANE_CURRENT_COMMAND]),
+        "codex" | "node"
+    ) {
+        return None;
+    }
+    let pid = parts[pane_line_field::PANE_PID].parse::<u32>().ok()?;
+    let snapshot = snapshot?;
+    let has_client = snapshot.descendants(&[pid]).iter().any(|pid| {
+        snapshot.info_by_pid.get(pid).is_some_and(|info| {
+            process_matches_agent(info, CODEX_AGENT)
+                && !matches!(
+                    info.args.split_whitespace().nth(1),
+                    Some(
+                        "app-server"
+                            | "exec"
+                            | "e"
+                            | "review"
+                            | "mcp"
+                            | "exec-server"
+                            | "doctor"
+                            | "features"
+                    )
+                )
+        })
+    });
+    if pid == 0 || !has_client {
+        return None;
+    }
+    let mut fields = parts.to_vec();
+    fields[pane_line_field::AGENT] = CODEX_AGENT.into();
+    // Ignore metadata stranded by an older session; all fallback state is
+    // reconstructed from the currently attached terminal on every refresh.
+    for index in [
+        pane_line_field::PANE_STATUS,
+        pane_line_field::PANE_ATTENTION,
+        pane_line_field::PROMPT,
+        pane_line_field::PROMPT_SOURCE,
+        pane_line_field::STARTED_AT,
+        pane_line_field::WAIT_REASON,
+        pane_line_field::SUBAGENTS,
+        pane_line_field::PANE_CWD,
+        pane_line_field::SESSION_ID,
+        pane_line_field::BG_CMD,
+        pane_line_field::WORKTREE_NAME,
+        pane_line_field::WORKTREE_BRANCH,
+    ] {
+        fields[index].clear();
+    }
+    let mut pane = parse_pane_fields_with_processes(&fields, Some(snapshot))?;
+    let title = parts
+        .get(pane_line_field::TITLE)
+        .map(String::as_str)
+        .unwrap_or("");
+    let (status, label) = codex_title_status(title);
+    pane.attention = status == PaneStatus::Waiting;
+    if pane.attention {
+        pane.wait_reason = "idle_prompt".into();
+    }
+    pane.status = status;
+    pane.prompt = sanitize_prompt(label);
+    Some(pane)
+}
+
+/// Codex's default terminal title contains an activity prefix, thread name,
+/// and project. Both blink phases mean waiting; a trailing name-generation
+/// spinner is deliberately not treated as agent activity.
+fn codex_title_status(title: &str) -> (PaneStatus, &str) {
+    let title = title.trim();
+    // Voice mode may prepend its microphone indicator to the activity.
+    let activity = title.strip_prefix("● ").unwrap_or(title);
+    for prefix in ["[ ! ] Action Required", "[ . ] Action Required"] {
+        if let Some(label) = activity.strip_prefix(prefix) {
+            return (PaneStatus::Waiting, label.trim_start_matches([' ', '|']));
+        }
+    }
+    if let Some((prefix, label)) = activity.split_once(' ')
+        && matches!(
+            prefix,
+            "⠋" | "⠙" | "⠹" | "⠸" | "⠼" | "⠴" | "⠦" | "⠧" | "⠇" | "⠏"
+        )
+    {
+        return (PaneStatus::Running, label);
+    }
+    if matches!(
+        activity,
+        "⠋" | "⠙" | "⠹" | "⠸" | "⠼" | "⠴" | "⠦" | "⠧" | "⠇" | "⠏"
+    ) {
+        return (PaneStatus::Running, "");
+    }
+    if title.is_empty() {
+        (PaneStatus::Unknown, "")
+    } else {
+        (PaneStatus::Idle, title)
+    }
 }
 
 fn apply_codex_permission_modes(
@@ -561,6 +681,115 @@ fn split_tmux_fields(line: &str, delimiter: char) -> Vec<String> {
 mod tests {
     use super::super::options::test_mock;
     use super::*;
+
+    #[test]
+    fn codex_title_activity_and_both_attention_phases() {
+        for spinner in ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] {
+            assert_eq!(
+                codex_title_status(&format!("{spinner} task | repo")).0,
+                PaneStatus::Running
+            );
+            assert_eq!(codex_title_status(spinner).0, PaneStatus::Running);
+        }
+        for prefix in ["[ ! ]", "[ . ]"] {
+            assert_eq!(
+                codex_title_status(&format!("{prefix} Action Required | task")).0,
+                PaneStatus::Waiting
+            );
+        }
+        assert_eq!(
+            codex_title_status("● [ ! ] Action Required | task").0,
+            PaneStatus::Waiting
+        );
+        assert_eq!(codex_title_status("task ⠋ | repo").0, PaneStatus::Idle);
+        assert_eq!(codex_title_status("task | repo").0, PaneStatus::Idle);
+        assert_eq!(codex_title_status("").0, PaneStatus::Unknown);
+    }
+
+    fn daemon_codex_fields() -> Vec<String> {
+        let mut fields = field_strings(&full_fields());
+        fields[pane_line_field::AGENT].clear();
+        fields[pane_line_field::PANE_CURRENT_COMMAND] = "node".into();
+        fields.push("⠹ 修复状态 | project".into());
+        fields
+    }
+
+    #[test]
+    fn discovers_codex_behind_node_without_hook_metadata() {
+        let fields = daemon_codex_fields();
+        let snapshot = process_snapshot(
+            "12345 1 zsh zsh\n12346 12345 node node /opt/bin/codex\n12347 12346 /opt/vendor/codex /opt/vendor/codex\n",
+        );
+        let pane = parse_pane_fields_with_processes(&fields, Some(&snapshot)).unwrap();
+        assert_eq!(pane.agent, AgentType::Codex);
+        assert_eq!(pane.status, PaneStatus::Running);
+        assert_eq!(pane.path, "/home/user/project");
+        assert_eq!(pane.prompt, "修复状态 | project");
+        assert!(pane.session_id.is_none());
+        assert!(pane.started_at.is_none());
+        assert!(pane.subagents.is_empty());
+    }
+
+    #[test]
+    fn discovered_codex_updates_each_poll_and_disappears_on_exit() {
+        let mut fields = daemon_codex_fields();
+        let live = process_snapshot("12345 1 zsh zsh\n12346 12345 codex codex\n");
+        for (title, status, attention) in [
+            ("⠋ task | repo", PaneStatus::Running, false),
+            ("[ . ] Action Required | task", PaneStatus::Waiting, true),
+            ("task | repo", PaneStatus::Idle, false),
+        ] {
+            fields[pane_line_field::TITLE] = title.into();
+            let pane = parse_pane_fields_with_processes(&fields, Some(&live)).unwrap();
+            assert_eq!(pane.status, status);
+            assert_eq!(pane.attention, attention);
+        }
+        let exited = process_snapshot("12345 1 zsh zsh\n");
+        assert!(parse_pane_fields_with_processes(&fields, Some(&exited)).is_none());
+        assert!(parse_pane_fields_with_processes(&fields, None).is_none());
+    }
+
+    #[test]
+    fn fallback_does_not_mistake_node_or_unrelated_codex_for_agent() {
+        let fields = daemon_codex_fields();
+        let snapshot = process_snapshot(
+            "12345 1 zsh zsh\n12346 12345 node node server.js\n999 1 codex codex\n",
+        );
+        assert!(parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none());
+        for command in ["app-server", "exec", "review", "mcp"] {
+            let snapshot = process_snapshot(&format!(
+                "12345 1 zsh zsh\n12346 12345 codex codex {command}\n"
+            ));
+            assert!(parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none());
+        }
+    }
+
+    #[test]
+    fn fallback_preserves_hook_status_and_excludes_sidebar() {
+        let mut fields = daemon_codex_fields();
+        let snapshot = process_snapshot("12345 1 zsh zsh\n12346 12345 codex codex\n");
+        fields[pane_line_field::AGENT] = "codex".into();
+        fields[pane_line_field::PANE_STATUS] = "waiting".into();
+        let pane = parse_pane_fields_with_processes(&fields, Some(&snapshot)).unwrap();
+        assert_eq!(pane.status, PaneStatus::Waiting);
+        assert_eq!(pane.prompt, "fix the bug");
+        fields[pane_line_field::AGENT].clear();
+        fields[pane_line_field::PANE_ROLE] = "sidebar".into();
+        assert!(parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none());
+    }
+
+    #[test]
+    fn daemon_codex_requests_process_snapshot_and_preserves_title_pipes() {
+        let mut fields = daemon_codex_fields();
+        fields[pane_line_field::TITLE] = "⠹ task \\| project".into();
+        let line = format!("main|@0|0|win|1|1|{}", fields.join("|"));
+        assert!(pane_output_needs_process_snapshot(&line));
+        let snapshot = process_snapshot("12345 1 zsh zsh\n12346 12345 codex codex\n");
+        let (map, _) = build_session_hierarchy(&line, Some(&snapshot));
+        let sessions = finalize_sessions(map);
+        assert_eq!(sessions[0].windows[0].panes[0].prompt, "task | project");
+        assert!(pane_format().ends_with("#{q:pane_title}"));
+    }
 
     #[test]
     fn detect_codex_permission_mode_variants() {

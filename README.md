@@ -1,5 +1,35 @@
 <h1 align="center">tmux-agent-sidebar</h1>
 
+## Codex compatibility fork
+
+This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
+adds process-based discovery for attached Codex clients when hooks cannot identify
+their tmux pane. It infers running/waiting/idle state from the default terminal
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.1`.
+
+Build this fork from source; upstream release binaries do not contain the patch:
+
+```sh
+cd ~/.tmux/plugins/tmux-agent-sidebar
+cargo build --release --locked
+mkdir -p bin
+cp target/release/tmux-agent-sidebar bin/tmux-agent-sidebar
+if [ "$(uname -s)" = Darwin ]; then
+  codesign --force --sign - bin/tmux-agent-sidebar
+fi
+```
+
+Toggle existing sidebars off and on after building. The plugin prefers `bin/`
+over `target/release/`, so copying the built binary is required when `bin/` exists.
+The installer and update checker target this fork, not upstream releases.
+
+Fallback limitations: terminal titles must retain Codex's default activity item;
+custom nonempty titles are treated as idle. Existing `@pane_agent` metadata takes
+priority even if its hooks have stopped updating. Session IDs, elapsed time,
+tool activity, and subagent details still require working hooks. Noninteractive
+command detection currently assumes the subcommand immediately follows `codex`.
+See [Codex setup](website/src/content/docs/getting-started/codex.md).
+
 <p align="center">One tmux sidebar that tracks every Claude Code, Codex, and OpenCode pane across every session and window. See status, background shells, prompts, Git state, activity, and worktrees without switching windows.</p>
 
 <p align="center"><img src="website/src/assets/captures/hero.png" alt="tmux-agent-sidebar hero" /></p>
@@ -36,10 +66,10 @@ OpenCode uses a small local plugin bridge instead of per-event hook config. The 
 Using [TPM](https://github.com/tmux-plugins/tpm):
 
 ```tmux
-set -g @plugin 'hiroppy/tmux-agent-sidebar'
+set -g @plugin 'Elliot-Wang/tmux-agent-sidebar'
 ```
 
-Reload tmux (`tmux source ~/.tmux.conf`), then press `prefix + I`. The install wizard downloads a pre-built binary or builds from source.
+Reload tmux (`tmux source ~/.tmux.conf`), then press `prefix + I`. Choose **Build from source** in the install wizard for this fork.
 
 ### 2. Wire up the agent hooks
 
