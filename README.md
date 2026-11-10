@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.5`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.6`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -58,8 +58,9 @@ gaps. Only conversations observed by this sidebar version are retained.
   across sidebar restarts. Unpinning a closed conversation starts a fresh
   retention period.
 - Click the closed session's `+`, or select it and press `n` (the existing spawn
-  action) or Enter, to resume it in a **new pane in the current window**, using
-  its original working directory and exact session ID. Selecting a closed row
+  action) or Enter, to resume it in a **new window in the sidebar's tmux session**, using
+  its original working directory and exact session ID. The new window is selected
+  automatically. Selecting a closed row
   alone does not launch anything. The repository header's `+` also resumes a
   selected closed session in that group; otherwise worktree spawning works as
   before. Resume creates no worktree.

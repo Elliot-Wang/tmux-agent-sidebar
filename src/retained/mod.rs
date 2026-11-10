@@ -267,25 +267,18 @@ impl History {
 
 fn spawn_resume(entry: &Entry, sidebar: &str) -> Result<String, String> {
     let argv = resume_argv(entry)?;
-    let output = tmux::run_tmux_capture(&[
-        "list-panes",
-        "-t",
-        sidebar,
-        "-F",
-        "#{pane_id}|#{@pane_role}",
-    ])?;
-    let target = output
-        .lines()
-        .filter_map(|l| l.split_once('|'))
-        .find(|(_, role)| *role != "sidebar")
-        .map(|(id, _)| id)
-        .ok_or("no workspace pane available to split")?;
+    let session = tmux::display_message(sidebar, "#{session_id}");
+    if !session.starts_with('$') {
+        return Err("cannot identify the sidebar's tmux session".into());
+    }
+    // An empty window index chooses the next free index in this session.
+    let target = format!("{session}:");
     // Multiple argv items use tmux's direct exec path, without shell interpolation.
+    // Without -d, tmux selects the new window and focuses the resumed client.
     let mut args = vec![
-        "split-window",
-        "-h",
+        "new-window",
         "-t",
-        target,
+        target.as_str(),
         "-c",
         entry.cwd.as_str(),
         "-P",

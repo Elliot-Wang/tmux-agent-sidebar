@@ -66,6 +66,7 @@ int main(int argc,char **argv) {
             tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'test', '-x', '120', '-y', '40', '-c', str(work), str(bindir / 'codex'), 'initial')
             agent = tmux('display-message', '-p', '#{pane_id}')
             window = tmux('display-message', '-p', '#{window_id}')
+            session = tmux('display-message', '-p', '#{session_id}')
             for key, value in {'@pane_agent':'codex', '@pane_session_id':'test-session', '@pane_status':'idle', '@pane_prompt':'retained-task | fixture', '@pane_cwd':str(work)}.items():
                 tmux('set-option', '-p', '-t', agent, key, value)
             tmux('split-window', '-h', '-t', agent, 'sleep 600')
@@ -96,23 +97,34 @@ int main(int argc,char **argv) {
             assert len(tmux('list-panes', '-F', '#{pane_id}').splitlines()) == 2
             moved.rename(work)
             tmux('set-option', '-g', '@sidebar_idle_retention_minutes', '30')
+            original_panes = tmux('list-panes', '-t', window, '-F', '#{pane_id}')
             # n is the existing spawn action; a retained selection resumes instead.
             tmux('send-keys', '-t', sidebar, 'n')
             wait(lambda: len(log.read_text().splitlines()) == 2, 'spawn key starts resume')
             assert log.read_text().splitlines()[1].split('\t') == [str(work), 'resume', 'test-session'], log.read_text()
-            assert len(tmux('list-windows', '-F', '#{window_id}').splitlines()) == 1
-            assert len(tmux('list-panes', '-F', '#{pane_id}').splitlines()) == 3
+            assert len(tmux('list-windows', '-t', session, '-F', '#{window_id}').splitlines()) == 2
+            resumed_window = tmux('display-message', '-p', '#{window_id}')
+            assert resumed_window != window, 'resume selects a new window'
+            assert tmux('list-panes', '-t', window, '-F', '#{pane_id}') == original_panes, 'original window is not split'
             wait(lambda: len(records()) == 1 and records()[0]['closed_at'] is None, 'resumed session replaces saved row without duplicate')
             assert records()[0]['pinned']
             result = history('resume', key, check=False)
             assert result.returncode != 0, 'duplicate resume blocked'
             live = records()[0]['live_pane']
+            assert tmux('display-message', '-p', '-t', live, '#{window_id}') == resumed_window
+            assert tmux('display-message', '-p', '-t', live, '#{session_id}') == session
+            assert len(tmux('list-windows', '-t', session, '-F', '#{window_id}').splitlines()) == 2, 'duplicate resume creates no extra window'
             tmux('kill-pane', '-t', live)
             wait(lambda: records()[0]['closed_at'] is not None, 'second exit retained')
             tmux('set-option', '-g', '@sidebar_idle_retention_minutes', '0')
+            tmux('select-window', '-t', window)
+            tmux('select-pane', '-t', sidebar)
+            # Another sidebar may have marked the record closed first; let the
+            # original sidebar refresh its selection before sending a key.
+            time.sleep(1.2)
             tmux('send-keys', '-t', sidebar, 'p')
             wait(lambda: records() == [], 'unpin obeys configurable expiry')
-            print('PASS: exact argv/cwd, pin, restart, expiry, missing cwd, single new pane, deduplication')
+            print('PASS: exact argv/cwd, pin, restart, expiry, missing cwd, new selected window, original window preserved, deduplication')
         finally:
             subprocess.run(['tmux', '-S', socket, 'kill-server'], env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8)

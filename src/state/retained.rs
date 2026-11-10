@@ -27,7 +27,7 @@ impl AppState {
             .ok_or_else(|| "session cache unavailable".to_string())
             .and_then(|h| h.resume(pane, &self.tmux_pane, crate::time::now_epoch_secs()));
         match result {
-            Ok(_) => self.set_flash("Resuming session in a new pane"),
+            Ok(_) => self.set_flash("Resuming session in a new window"),
             Err(e) => self.set_flash(format!("resume: {e}")),
         }
     }
