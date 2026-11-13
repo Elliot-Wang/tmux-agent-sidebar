@@ -219,3 +219,62 @@ fn pane_reuse_during_grace_does_not_create_duplicate_click_targets() {
     assert_ne!(rows[0].pane_id, rows[1].pane_id);
     assert_eq!(history.entries["codex:abc"].closed_at, Some(101));
 }
+
+#[test]
+fn empty_startup_client_does_not_become_a_retained_conversation() {
+    let mut db = BTreeMap::new();
+    let mut startup = pane("%1", None);
+    startup.prompt.clear();
+    reconcile(&mut db, &[startup.clone()], 100, 30);
+    assert!(db.is_empty());
+    startup.path = "/another-directory".into();
+    reconcile(&mut db, &[startup], 101, 30);
+    reconcile(&mut db, &[], 104, 30);
+    assert!(db.is_empty());
+    let mut identified = pane("%1", Some("real-conversation"));
+    identified.prompt.clear();
+    reconcile(&mut db, &[identified], 105, 30);
+    assert_eq!(
+        db.len(),
+        1,
+        "an exact ID establishes a real conversation even without a title"
+    );
+}
+
+#[test]
+fn provisional_title_changes_and_id_resolution_keep_one_record_and_pin() {
+    let mut db = BTreeMap::new();
+    let mut client = pane("%1", None);
+    client.prompt = "initial prompt".into();
+    reconcile(&mut db, &[client.clone()], 100, 30);
+    db.values_mut().next().unwrap().pinned = true;
+    client.prompt = "generated title | repo".into();
+    reconcile(&mut db, &[client.clone()], 101, 30);
+    assert_eq!(db.len(), 1);
+    assert!(db.values().next().unwrap().pinned);
+    client.session_id = Some("real-conversation".into());
+    reconcile(&mut db, &[client], 102, 30);
+    assert_eq!(db.len(), 1);
+    assert!(db["codex:real-conversation"].pinned);
+}
+
+#[test]
+fn legacy_empty_records_are_cleaned_but_explicit_pins_are_preserved() {
+    let mut db = BTreeMap::new();
+    reconcile(&mut db, &[pane("%1", None)], 100, 30);
+    let mut legacy = db.values().next().unwrap().clone();
+    db.clear();
+    legacy.title.clear();
+    legacy.closed_at = Some(103);
+    legacy.cwd = "/old-startup-directory".into();
+    legacy.key = "codex:unknown:legacy-empty".into();
+    db.insert(legacy.key.clone(), legacy.clone());
+    legacy.key = "codex:unknown:explicitly-pinned".into();
+    legacy.pinned = true;
+    db.insert(legacy.key.clone(), legacy);
+    reconcile(&mut db, &[pane("%1", Some("real-conversation"))], 104, 30);
+    assert!(!db.contains_key("codex:unknown:legacy-empty"));
+    assert!(db["codex:unknown:explicitly-pinned"].pinned);
+    assert!(db.contains_key("codex:real-conversation"));
+    assert_eq!(db.len(), 2);
+}

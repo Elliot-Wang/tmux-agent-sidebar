@@ -386,20 +386,35 @@ fn reconcile(
             .clone()
             .or_else(|| pending.and_then(|e| e.session_id.clone()));
         let key = live_key(p, sid.as_deref());
-        // Upgrade previously unresolved records without losing their pin.
-        let old_key = db
+        // A client on its startup/welcome screen is not yet a conversation.
+        // Do not turn its empty terminal title into a retained idle session.
+        // Keep explicit legacy pins rather than silently deleting user choices.
+        if sid.is_none() && p.prompt.trim().is_empty() && !db.get(&key).is_some_and(|e| e.pinned) {
+            continue;
+        }
+        // Titles can change from an initial prompt to a generated name before
+        // the exact ID arrives. Merge the continuously observed provisional
+        // record, while keeping distinct closed conversations separate.
+        let old_keys: Vec<_> = db
             .iter()
-            .find(|(k, e)| {
+            .filter(|(k, e)| {
                 *k != &key
                     && e.session_id.is_none()
+                    && e.agent == p.agent.as_str()
                     && e.live_pane == p.pane_id
                     && e.live_pid == p.pane_pid
-                    && e.cwd == p.path
-                    && e.title == p.prompt
+                    && ((e.cwd == p.path && e.title == p.prompt)
+                        || (e.closed_at.is_none()
+                            && (e.cwd == p.path || e.title.trim().is_empty())))
             })
-            .map(|(k, _)| k.clone());
-        let old = old_key.and_then(|k| db.remove(&k));
-        let pinned = db.get(&key).is_some_and(|e| e.pinned) || old.is_some_and(|e| e.pinned);
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut pinned = db.get(&key).is_some_and(|e| e.pinned);
+        for old_key in old_keys {
+            if let Some(old) = db.remove(&old_key) {
+                pinned |= old.pinned;
+            }
+        }
         let e = Entry {
             key: key.clone(),
             agent: p.agent.as_str().into(),
@@ -433,6 +448,9 @@ fn reconcile(
         }
     }
     db.retain(|_, e| {
+        if e.session_id.is_none() && e.title.trim().is_empty() && !e.pinned {
+            return false;
+        }
         e.pinned
             || e.pending_until > now
             || e.closed_at

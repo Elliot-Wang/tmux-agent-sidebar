@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.9`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.10`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -54,6 +54,9 @@ During the three-second absence grace period, the last visible row stays in
 place. Once exit is confirmed, its status changes to closed without removing
 and reinserting the row. Conversation order and selection survive exit and
 resume. Only conversations observed by this sidebar version are retained.
+Empty startup clients without a session ID or title are not saved as closed
+conversations. Provisional records merge into the identified session as its
+title and ID become available.
 
 - Click a session's `[p]`, or select it and press `p`, to pin it. `[P]` means
   pinned. A pinned conversation remains after exit without a time limit, even
