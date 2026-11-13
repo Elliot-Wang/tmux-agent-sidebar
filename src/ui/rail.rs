@@ -1,11 +1,14 @@
 use crate::state::AppState;
 use ratatui::{Frame, layout::Rect, style::Style, widgets::Paragraph};
 
-/// A two-column rail. Counts saturate at '+' so they never wrap into another
-/// row. ASCII status markers stay readable without a patched terminal font.
+/// Compact status rail. The total stays exact; narrow rails put multi-digit
+/// totals below the All icon. Activity counters still saturate at '+'.
 pub(super) fn draw(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
-    let (_, running, background, waiting, _, errors) = state.status_counts();
+    if area.width == 0 {
+        return;
+    }
+    let (all, running, background, waiting, _, errors) = state.status_counts();
     let count = |n: usize| {
         if n > 9 {
             "+".to_string()
@@ -13,25 +16,34 @@ pub(super) fn draw(frame: &mut Frame, state: &AppState) {
             n.to_string()
         }
     };
-    for (y, text, color) in [
-        (0, ">".to_string(), state.theme.accent),
+    let mut rows = vec![(">".to_string(), state.theme.accent)];
+    let total = format!("{}{all}", state.icons.all_icon());
+    if crate::ui::text::display_width(&total) <= area.width as usize {
+        rows.push((total, state.theme.status_all));
+    } else {
+        rows.push((state.icons.all_icon().to_string(), state.theme.status_all));
+        for digits in all.to_string().as_bytes().chunks(area.width as usize) {
+            rows.push((
+                String::from_utf8_lossy(digits).into_owned(),
+                state.theme.status_all,
+            ));
+        }
+    }
+    rows.extend([
         (
-            2,
             format!("!{}", count(waiting + errors)),
             state.theme.status_waiting,
         ),
         (
-            3,
             format!("*{}", count(running + background)),
             state.theme.status_running,
         ),
-    ] {
-        if y < area.height {
-            frame.render_widget(
-                Paragraph::new(text).style(Style::default().fg(color)),
-                Rect::new(area.x, area.y + y, area.width, 1),
-            );
-        }
+    ]);
+    for (y, (text, color)) in rows.into_iter().enumerate().take(area.height as usize) {
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(color)),
+            Rect::new(area.x, area.y + y as u16, area.width, 1),
+        );
     }
 }
 
@@ -59,7 +71,7 @@ mod tests {
             .join("\n");
         insta::assert_snapshot!(output, @r"
         |> |
-        |  |
+        |≡0|
         |!0|
         |*0|
         |  |

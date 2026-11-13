@@ -5,7 +5,7 @@
 This fork of [hiroppy/tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 adds process-based discovery for attached Codex clients when hooks cannot identify
 their tmux pane. It infers running/waiting/idle state from the default terminal
-title and leaves working hook metadata in charge. Version: `0.13.0-codex.8`.
+title and leaves working hook metadata in charge. Version: `0.13.0-codex.9`.
 
 Build this fork from source; upstream release binaries do not contain the patch:
 
@@ -109,8 +109,11 @@ Delays are milliseconds. The rail expands to `@sidebar_width` (default `15%`)
 after hovering, without changing keyboard focus. Moving into another pane or
 the status bar starts the hide delay. A focused sidebar or an open sidebar
 menu stays expanded. `prefix + b` pins/unpins the current window's sidebar;
-`prefix + e` still closes or creates it. `!` counts waiting/error agents and
-`*` counts running/background agents; counts above nine display `+`.
+`prefix + e` still closes or creates it. `≡` shows the same total session count
+as the expanded All filter, including retained closed sessions. If the total
+does not fit beside the icon, its full digits appear below it. `!` counts
+waiting/error agents and `*` counts running/background agents; these activity
+counters display `+` above nine.
 
 Set `@sidebar_auto_hide off` and reload the plugin to restore normal width and
 remove its mouse tracking. The setting defaults to off. Resizing uses a real
